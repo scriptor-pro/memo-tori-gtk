@@ -217,6 +217,10 @@ window {
   color: #172127;
 }
 
+.note-editor {
+  font-family: \"JetBrains Mono\", \"Fira Code\", \"DejaVu Sans Mono\", monospace;
+}
+
 .section-title {
   color: #172127;
   font-weight: 700;
@@ -368,6 +372,7 @@ pub fn run(config: AppConfig, connection: Connection) -> Result<()> {
         capture_scrolled.set_min_content_height(220);
 
         let text_view = TextView::new();
+        text_view.add_css_class("note-editor");
         text_view.set_wrap_mode(WrapMode::WordChar);
         text_view.set_vexpand(false);
         text_view.grab_focus();
@@ -463,6 +468,7 @@ pub fn run(config: AppConfig, connection: Connection) -> Result<()> {
 
         let reader = TextView::new();
         reader.add_css_class("reader");
+        reader.add_css_class("note-editor");
         reader.set_editable(true);
         reader.set_cursor_visible(true);
         reader.set_wrap_mode(WrapMode::WordChar);
