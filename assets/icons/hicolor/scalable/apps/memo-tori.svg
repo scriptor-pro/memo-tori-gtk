@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg width="128" height="128" viewBox="0 0 128 128" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Memo-Tori icon">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#1F3A45"/>
+      <stop offset="100%" stop-color="#2F5A69"/>
+    </linearGradient>
+  </defs>
+  <rect x="8" y="8" width="112" height="112" rx="24" fill="url(#bg)"/>
+  <rect x="28" y="24" width="72" height="80" rx="10" fill="#FFF8E8"/>
+  <rect x="36" y="40" width="56" height="6" rx="3" fill="#8AA2A8"/>
+  <rect x="36" y="54" width="56" height="6" rx="3" fill="#8AA2A8"/>
+  <rect x="36" y="68" width="40" height="6" rx="3" fill="#8AA2A8"/>
+  <path d="M76 83 L102 109" stroke="#E29C4B" stroke-width="10" stroke-linecap="round"/>
+  <circle cx="104" cy="111" r="8" fill="#E29C4B"/>
+</svg>

@@ -1,0 +1,10 @@
+[Desktop Entry]
+Type=Application
+Name=Memo-Tori
+Comment=Ultra-fast thought capture
+Exec=memo-tori-gtk
+Icon=memo-tori
+Categories=Utility;Office;
+Terminal=false
+StartupNotify=true
+StartupWMClass=io.github.memo_tori.gtk
