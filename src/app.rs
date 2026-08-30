@@ -173,10 +173,7 @@ fn icon_label_button(icon_name: &str, label_text: &str) -> Button {
     button
 }
 
-fn install_css() {
-    let provider = gtk::CssProvider::new();
-    provider.load_from_data(
-        "
+const BASE_CSS: &str = "
 window {
   background: linear-gradient(180deg, #f4f0e6 0%, #ece7dc 100%);
 }
@@ -295,14 +292,26 @@ list:focus-visible {
   border-radius: 8px;
   border: 1px solid #d98c8c;
 }
-",
-    );
+";
+
+fn install_css(text_scale: f32) {
+    let provider = gtk::CssProvider::new();
+    provider.load_from_data(BASE_CSS);
+
+    let scale_provider = gtk::CssProvider::new();
+    let base_font_size = (13.0 * text_scale.clamp(0.5, 3.0)).round() as i32;
+    scale_provider.load_from_data(&format!("* {{ font-size: {base_font_size}px; }}"));
 
     if let Some(display) = gdk::Display::default() {
         gtk::style_context_add_provider_for_display(
             &display,
             &provider,
             gtk::STYLE_PROVIDER_PRIORITY_APPLICATION,
+        );
+        gtk::style_context_add_provider_for_display(
+            &display,
+            &scale_provider,
+            gtk::STYLE_PROVIDER_PRIORITY_APPLICATION + 1,
         );
     }
 }
@@ -313,6 +322,7 @@ pub fn run(config: AppConfig, connection: Connection) -> Result<()> {
     } else {
         config.capture_hints.clone()
     };
+    let text_scale = config.text_scale;
 
     let app = Application::builder()
         .application_id("io.github.memo_tori.gtk")
@@ -382,7 +392,7 @@ pub fn run(config: AppConfig, connection: Connection) -> Result<()> {
 
         gtk::Window::set_default_icon_name("memo-tori");
         crate::fonts::ensure_installed();
-        install_css();
+        install_css(text_scale);
 
         let window = ApplicationWindow::builder()
             .application(app)
