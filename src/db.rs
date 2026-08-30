@@ -563,6 +563,37 @@ mod tests {
     }
 
     #[test]
+    fn move_note_multiple_steps_reaches_target_position() {
+        let mut conn = setup_conn();
+        migrate_add_position_column(&mut conn).unwrap();
+        insert_note(&mut conn, "a", &[]).unwrap();
+        insert_note(&mut conn, "b", &[]).unwrap();
+        insert_note(&mut conn, "c", &[]).unwrap();
+        insert_note(&mut conn, "d", &[]).unwrap();
+        // Manual order is now: d, c, b, a.
+
+        let a_id: String = conn
+            .query_row("SELECT id FROM notes WHERE content = 'a'", [], |row| row.get(0))
+            .unwrap();
+
+        // Simulate the drop handler's loop: move "a" up 3 times to reach the top.
+        for _ in 0..3 {
+            move_note(&mut conn, &a_id, MoveDirection::Up).unwrap();
+        }
+
+        let mut stmt = conn
+            .prepare("SELECT content FROM notes ORDER BY position ASC")
+            .unwrap();
+        let ordered: Vec<String> = stmt
+            .query_map([], |row| row.get::<_, String>(0))
+            .unwrap()
+            .collect::<rusqlite::Result<Vec<_>>>()
+            .unwrap();
+
+        assert_eq!(ordered, vec!["a", "d", "c", "b"]);
+    }
+
+    #[test]
     fn search_notes_uses_manual_position_when_unfiltered() {
         let mut conn = setup_conn();
         migrate_add_position_column(&mut conn).unwrap();

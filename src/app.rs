@@ -668,9 +668,7 @@ pub fn run(config: AppConfig, connection: Connection) -> Result<()> {
 
                 let mut current = dragged_position;
                 while current != target_position {
-                    let id_at_current = notes_state.borrow().get(current).map(|n| n.id.clone());
-                    let Some(id_at_current) = id_at_current else { break };
-                    if db::move_note(&mut conn.borrow_mut(), &id_at_current, direction).is_err() {
+                    if db::move_note(&mut conn.borrow_mut(), &dragged_id, direction).is_err() {
                         break;
                     }
                     current = match direction {
