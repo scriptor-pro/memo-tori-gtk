@@ -42,6 +42,10 @@ fn parse_tags(input: &str) -> Vec<String> {
         .collect()
 }
 
+fn manual_order_active(search_entry: &SearchEntry, filter_tags_entry: &Entry) -> bool {
+    search_entry.text().trim().is_empty() && filter_tags_entry.text().trim().is_empty()
+}
+
 fn current_tag_fragment(input: &str) -> String {
     input
         .rsplit(',')
@@ -602,8 +606,87 @@ pub fn run(config: AppConfig, connection: Connection) -> Result<()> {
         paned.set_resize_start_child(true);
         paned.set_shrink_start_child(false);
 
+        let notes_state = Rc::new(RefCell::new(Vec::<db::NoteListItem>::new()));
+        let refresh_notes_holder: Rc<RefCell<Option<Rc<dyn Fn()>>>> = Rc::new(RefCell::new(None));
+
         let list_box = ListBox::new();
         list_box.set_selection_mode(gtk::SelectionMode::Single);
+
+        let drop_target = gtk::DropTarget::new(String::static_type(), gtk::gdk::DragAction::MOVE);
+        drop_target.connect_drop({
+            let conn = Rc::clone(&conn);
+            let notes_state = Rc::clone(&notes_state);
+            let refresh_notes_holder = Rc::clone(&refresh_notes_holder);
+            move |target, value, _x, y| {
+                let Ok(dragged_id) = value.get::<String>() else {
+                    return false;
+                };
+
+                let Some(target_row) = target
+                    .widget()
+                    .and_then(|widget| widget.downcast_ref::<ListBox>().and_then(|lb| lb.row_at_y(y as i32)))
+                else {
+                    return false;
+                };
+
+                let target_index = target_row.index();
+                if target_index < 0 {
+                    return false;
+                }
+
+                let target_id = notes_state
+                    .borrow()
+                    .get(target_index as usize)
+                    .map(|n| n.id.clone());
+
+                let Some(target_id) = target_id else {
+                    return false;
+                };
+
+                if dragged_id == target_id {
+                    return false;
+                }
+
+                let dragged_position = notes_state
+                    .borrow()
+                    .iter()
+                    .position(|n| n.id == dragged_id);
+                let target_position = notes_state
+                    .borrow()
+                    .iter()
+                    .position(|n| n.id == target_id);
+
+                let (Some(dragged_position), Some(target_position)) = (dragged_position, target_position) else {
+                    return false;
+                };
+
+                let direction = if dragged_position > target_position {
+                    db::MoveDirection::Up
+                } else {
+                    db::MoveDirection::Down
+                };
+
+                let mut current = dragged_position;
+                while current != target_position {
+                    let id_at_current = notes_state.borrow().get(current).map(|n| n.id.clone());
+                    let Some(id_at_current) = id_at_current else { break };
+                    if db::move_note(&mut conn.borrow_mut(), &id_at_current, direction).is_err() {
+                        break;
+                    }
+                    current = match direction {
+                        db::MoveDirection::Up => current.saturating_sub(1),
+                        db::MoveDirection::Down => current + 1,
+                    };
+                }
+
+                if let Some(refresh) = refresh_notes_holder.borrow().as_ref() {
+                    refresh.as_ref()();
+                }
+
+                true
+            }
+        });
+        list_box.add_controller(drop_target);
 
         let list_scrolled = ScrolledWindow::new();
         list_scrolled.set_hexpand(true);
@@ -645,8 +728,6 @@ pub fn run(config: AppConfig, connection: Connection) -> Result<()> {
         window.set_child(Some(&root));
         window.set_titlebar(Some(&header_bar));
 
-        let notes_state = Rc::new(RefCell::new(Vec::<db::NoteListItem>::new()));
-
         let refresh_notes: Rc<dyn Fn()> = {
             let conn = Rc::clone(&conn);
             let search_entry = search_entry.clone();
@@ -682,6 +763,16 @@ pub fn run(config: AppConfig, connection: Connection) -> Result<()> {
 
                             container.append(&title);
                             row.set_child(Some(&container));
+
+                            if manual_order_active(&search_entry, &filter_tags_entry) {
+                                let drag_source = gtk::DragSource::new();
+                                let note_id = item.id.clone();
+                                drag_source.connect_prepare(move |_, _, _| {
+                                    Some(gtk::gdk::ContentProvider::for_value(&note_id.to_value()))
+                                });
+                                row.add_controller(drag_source);
+                            }
+
                             list_box.append(&row);
                         }
 
@@ -704,6 +795,8 @@ pub fn run(config: AppConfig, connection: Connection) -> Result<()> {
                 }
             })
         };
+
+        *refresh_notes_holder.borrow_mut() = Some(Rc::clone(&refresh_notes));
 
         let show_error: Rc<dyn Fn(&str)> = {
             let error_banner = error_banner.clone();
@@ -733,7 +826,8 @@ pub fn run(config: AppConfig, connection: Connection) -> Result<()> {
 
                 let tags = parse_tags(&capture_tags.text());
 
-                match db::insert_note(&mut conn.borrow_mut(), trimmed, &tags) {
+                let insert_result = db::insert_note(&mut conn.borrow_mut(), trimmed, &tags);
+                match insert_result {
                     Ok(()) => {
                         buffer.set_text("");
                         capture_tags.set_text("");
