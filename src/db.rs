@@ -230,7 +230,9 @@ pub fn search_notes(
         args.push(Value::Integer(normalized_tags.len() as i64));
     }
 
-    if query.is_empty() {
+    if query.is_empty() && normalized_tags.is_empty() {
+        sql.push_str("ORDER BY n.position ASC ");
+    } else if query.is_empty() {
         sql.push_str("ORDER BY n.updated_at DESC ");
     } else {
         sql.push_str("ORDER BY bm25(notes_fts), n.updated_at DESC ");
@@ -558,5 +560,37 @@ mod tests {
             .unwrap();
 
         assert_eq!(ordered, vec!["a", "b"]);
+    }
+
+    #[test]
+    fn search_notes_uses_manual_position_when_unfiltered() {
+        let mut conn = setup_conn();
+        migrate_add_position_column(&mut conn).unwrap();
+        insert_note(&mut conn, "a", &[]).unwrap();
+        insert_note(&mut conn, "b", &[]).unwrap();
+        let b_id: String = conn
+            .query_row("SELECT id FROM notes WHERE content = 'b'", [], |row| row.get(0))
+            .unwrap();
+        // Manual order is b, a. Move b down so order becomes a, b.
+        move_note(&mut conn, &b_id, MoveDirection::Down).unwrap();
+
+        let results = search_notes(&conn, "", &[], 10).unwrap();
+        let contents: Vec<String> = results.into_iter().map(|n| n.preview).collect();
+
+        assert_eq!(contents, vec!["a", "b"]);
+    }
+
+    #[test]
+    fn search_notes_ignores_manual_position_when_query_present() {
+        let mut conn = setup_conn();
+        migrate_add_position_column(&mut conn).unwrap();
+        insert_note(&mut conn, "alpha", &[]).unwrap();
+        insert_note(&mut conn, "beta", &[]).unwrap();
+
+        // With a text query, ordering falls back to bm25/updated_at, not position.
+        // We only assert that both matches are returned (behavior unchanged),
+        // not a specific order, since that path is untouched by this task.
+        let results = search_notes(&conn, "alpha OR beta", &[], 10).unwrap();
+        assert_eq!(results.len(), 2);
     }
 }
