@@ -202,6 +202,7 @@ headerbar stackswitcher.memo-switcher button:backdrop {
 headerbar stackswitcher.memo-switcher button label {
   color: #dfe9ec;
   opacity: 1;
+  font-weight: 700;
 }
 
 headerbar stackswitcher.memo-switcher button:hover {
@@ -217,6 +218,7 @@ headerbar stackswitcher.memo-switcher button:checked:backdrop {
 
 headerbar stackswitcher.memo-switcher button:checked label {
   color: #1f3a45;
+  font-weight: 700;
 }
 
 .capture-panel {
@@ -473,13 +475,9 @@ pub fn run(config: AppConfig, connection: Connection) -> Result<()> {
         let capture_panel = GtkBox::new(Orientation::Vertical, 8);
         capture_panel.add_css_class("capture-panel");
 
-        let capture_label = Label::new(Some("Capture d'idée rapide"));
+        let capture_label = Label::new(Some("J'ai une idée"));
         capture_label.set_halign(Align::Start);
         capture_label.add_css_class("section-title");
-
-        let capture_field_label = Label::new(Some("Nouvelle note"));
-        capture_field_label.set_halign(Align::Start);
-        capture_field_label.add_css_class("field-label");
 
         let capture_scrolled = ScrolledWindow::new();
         capture_scrolled.set_vexpand(false);
@@ -493,7 +491,7 @@ pub fn run(config: AppConfig, connection: Connection) -> Result<()> {
         text_view.set_tooltip_text(Some(
             "Saisir une idee. Enter pour sauvegarder, Shift+Enter pour nouvelle ligne.",
         ));
-        capture_field_label.set_mnemonic_widget(Some(&text_view));
+        capture_label.set_mnemonic_widget(Some(&text_view));
         capture_scrolled.set_child(Some(&text_view));
 
         let capture_overlay = gtk::Overlay::new();
@@ -537,7 +535,6 @@ pub fn run(config: AppConfig, connection: Connection) -> Result<()> {
         actions.append(&save_btn);
 
         capture_panel.append(&capture_label);
-        capture_panel.append(&capture_field_label);
         capture_panel.append(&capture_overlay);
         capture_panel.append(&capture_tags_label);
         capture_panel.append(&capture_tags);

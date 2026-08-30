@@ -7,7 +7,7 @@ use serde::{Deserialize, Serialize};
 pub fn default_capture_hints() -> Vec<String> {
     vec![
         "L'idee que je viens d'avoir :".to_string(),
-        "Note rapide :".to_string(),
+        "Mon idée :".to_string(),
         "Je ne dois pas oublier :".to_string(),
         "Pense-bete du moment :".to_string(),
         "A creuser plus tard :".to_string(),
