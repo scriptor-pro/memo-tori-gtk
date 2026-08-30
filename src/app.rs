@@ -737,10 +737,10 @@ pub fn run(config: AppConfig, connection: Connection) -> Result<()> {
 
                 match db::get_note_content(&conn.borrow(), &note_id) {
                     Ok(Some(content)) => reader.buffer().set_text(&content),
-                    Ok(None) => reader.buffer().set_text("Note not found."),
+                    Ok(None) => reader.buffer().set_text("Note introuvable."),
                     Err(err) => reader
                         .buffer()
-                        .set_text(&format!("Failed to load note:\n{}", err)),
+                        .set_text(&format!("Échec du chargement de la note :\n{}", err)),
                 }
 
                 match db::get_note_tags(&conn.borrow(), &note_id) {
