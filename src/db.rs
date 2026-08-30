@@ -117,9 +117,14 @@ pub fn insert_note(conn: &mut Connection, content: &str, tags: &[String]) -> Res
         .transaction()
         .context("failed to start note insertion transaction")?;
 
+    let min_position: i64 = tx
+        .query_row("SELECT COALESCE(MIN(position), 0) FROM notes", [], |row| row.get(0))
+        .context("failed to read current minimum note position")?;
+    let new_position = min_position - 1;
+
     tx.execute(
-        "INSERT INTO notes (id, content, created_at, updated_at, pinned) VALUES (?1, ?2, ?3, ?4, 0)",
-        params![id, content, now, now],
+        "INSERT INTO notes (id, content, created_at, updated_at, pinned, position) VALUES (?1, ?2, ?3, ?4, 0, ?5)",
+        params![id, content, now, now, new_position],
     )
     .context("failed to insert note")?;
 
@@ -361,17 +366,24 @@ mod tests {
     #[test]
     fn migrate_backfills_position_by_recency() {
         let mut conn = setup_conn();
-        insert_note(&mut conn, "oldest", &[]).unwrap();
-        insert_note(&mut conn, "middle", &[]).unwrap();
-        insert_note(&mut conn, "newest", &[]).unwrap();
-
-        // Force distinct updated_at ordering regardless of insertion speed.
-        conn.execute("UPDATE notes SET updated_at = '100' WHERE content = 'oldest'", [])
-            .unwrap();
-        conn.execute("UPDATE notes SET updated_at = '200' WHERE content = 'middle'", [])
-            .unwrap();
-        conn.execute("UPDATE notes SET updated_at = '300' WHERE content = 'newest'", [])
-            .unwrap();
+        // Insert directly via SQL (bypassing `insert_note`) to reproduce notes
+        // created before the `position` column existed, since `insert_note`
+        // now requires that column to be present (Task 2).
+        conn.execute(
+            "INSERT INTO notes (id, content, created_at, updated_at, pinned) VALUES ('1', 'oldest', '100', '100', 0)",
+            [],
+        )
+        .unwrap();
+        conn.execute(
+            "INSERT INTO notes (id, content, created_at, updated_at, pinned) VALUES ('2', 'middle', '200', '200', 0)",
+            [],
+        )
+        .unwrap();
+        conn.execute(
+            "INSERT INTO notes (id, content, created_at, updated_at, pinned) VALUES ('3', 'newest', '300', '300', 0)",
+            [],
+        )
+        .unwrap();
 
         migrate_add_position_column(&mut conn).unwrap();
 
@@ -385,5 +397,25 @@ mod tests {
             .unwrap();
 
         assert_eq!(ordered, vec!["newest", "middle", "oldest"]);
+    }
+
+    #[test]
+    fn insert_note_gets_lowest_position() {
+        let mut conn = setup_conn();
+        migrate_add_position_column(&mut conn).unwrap();
+
+        insert_note(&mut conn, "first", &[]).unwrap();
+        insert_note(&mut conn, "second", &[]).unwrap();
+
+        let mut stmt = conn
+            .prepare("SELECT content FROM notes ORDER BY position ASC")
+            .unwrap();
+        let ordered: Vec<String> = stmt
+            .query_map([], |row| row.get::<_, String>(0))
+            .unwrap()
+            .collect::<rusqlite::Result<Vec<_>>>()
+            .unwrap();
+
+        assert_eq!(ordered, vec!["second", "first"]);
     }
 }
