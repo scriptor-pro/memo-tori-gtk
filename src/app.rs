@@ -597,7 +597,7 @@ pub fn run(config: AppConfig, connection: Connection) -> Result<()> {
         note_actions_row.append(&cancel_note_btn);
         note_actions_row.append(&save_note_btn);
 
-        let selected_tags_label = Label::new(Some("Tags: -"));
+        let selected_tags_label = Label::new(Some("Tags : -"));
         selected_tags_label.set_halign(Align::Start);
         selected_tags_label.add_css_class("tag-chip");
 
@@ -780,7 +780,7 @@ pub fn run(config: AppConfig, connection: Connection) -> Result<()> {
                             list_box.select_row(Some(&row));
                         } else {
                             reader.buffer().set_text("Aucune note pour l'instant.");
-                            selected_tags_label.set_text("Tags: -");
+                            selected_tags_label.set_text("Tags : -");
                             selected_tags_entry.set_text("");
                         }
                     }
@@ -889,7 +889,7 @@ pub fn run(config: AppConfig, connection: Connection) -> Result<()> {
             Rc::new(move || {
                 let Some(row) = list_box.selected_row() else {
                     reader.buffer().set_text("Aucune note sélectionnée.");
-                    selected_tags_label.set_text("Tags: -");
+                    selected_tags_label.set_text("Tags : -");
                     selected_tags_entry.set_text("");
                     return;
                 };
@@ -897,7 +897,7 @@ pub fn run(config: AppConfig, connection: Connection) -> Result<()> {
                 let index = row.index();
                 if index < 0 {
                     reader.buffer().set_text("Aucune note sélectionnée.");
-                    selected_tags_label.set_text("Tags: -");
+                    selected_tags_label.set_text("Tags : -");
                     selected_tags_entry.set_text("");
                     return;
                 }
@@ -909,7 +909,7 @@ pub fn run(config: AppConfig, connection: Connection) -> Result<()> {
 
                 let Some(note_id) = note_id else {
                     reader.buffer().set_text("Aucune note sélectionnée.");
-                    selected_tags_label.set_text("Tags: -");
+                    selected_tags_label.set_text("Tags : -");
                     selected_tags_entry.set_text("");
                     return;
                 };
@@ -925,16 +925,16 @@ pub fn run(config: AppConfig, connection: Connection) -> Result<()> {
                 match db::get_note_tags(&conn.borrow(), &note_id) {
                     Ok(tags) => {
                         if tags.is_empty() {
-                            selected_tags_label.set_text("Tags: -");
+                            selected_tags_label.set_text("Tags : -");
                             selected_tags_entry.set_text("");
                         } else {
                             let joined = tags.join(", ");
-                            selected_tags_label.set_text(&format!("Tags: {}", joined));
+                            selected_tags_label.set_text(&format!("Tags : {}", joined));
                             selected_tags_entry.set_text(&joined);
                         }
                     }
                     Err(_) => {
-                        selected_tags_label.set_text("Tags: error");
+                        selected_tags_label.set_text("Tags : erreur de chargement");
                     }
                 }
             })
