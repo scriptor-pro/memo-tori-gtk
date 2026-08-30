@@ -286,6 +286,15 @@ list:focus-visible {
   outline: 3px solid #0b6ea8;
   outline-offset: 2px;
 }
+
+.error-banner {
+  background: #fbe4e4;
+  color: #7a1f1f;
+  font-weight: 600;
+  padding: 8px 12px;
+  border-radius: 8px;
+  border: 1px solid #d98c8c;
+}
 ",
     );
 
@@ -388,6 +397,12 @@ pub fn run(config: AppConfig, connection: Connection) -> Result<()> {
         root.set_margin_bottom(12);
         root.set_margin_start(12);
         root.set_margin_end(12);
+
+        let error_banner = Label::new(None);
+        error_banner.set_halign(Align::Start);
+        error_banner.add_css_class("error-banner");
+        error_banner.set_visible(false);
+        error_banner.set_accessible_role(gtk::AccessibleRole::Alert);
 
         let stack = Stack::new();
         stack.set_vexpand(true);
@@ -602,6 +617,7 @@ pub fn run(config: AppConfig, connection: Connection) -> Result<()> {
         stack.add_titled(&library_panel, Some("notes"), "Notes");
         stack.set_visible_child_name("capture");
 
+        root.append(&error_banner);
         root.append(&stack);
         window.set_child(Some(&root));
         window.set_titlebar(Some(&header_bar));
@@ -666,11 +682,21 @@ pub fn run(config: AppConfig, connection: Connection) -> Result<()> {
             })
         };
 
+        let show_error: Rc<dyn Fn(&str)> = {
+            let error_banner = error_banner.clone();
+            Rc::new(move |message: &str| {
+                error_banner.set_text(message);
+                error_banner.set_visible(true);
+            })
+        };
+
         let on_save = {
             let text_view = text_view.clone();
             let capture_tags = capture_tags.clone();
             let conn = Rc::clone(&conn);
             let refresh_notes = Rc::clone(&refresh_notes);
+            let error_banner = error_banner.clone();
+            let show_error = Rc::clone(&show_error);
             move || {
                 let buffer = text_view.buffer();
                 let start = buffer.start_iter();
@@ -684,14 +710,18 @@ pub fn run(config: AppConfig, connection: Connection) -> Result<()> {
 
                 let tags = parse_tags(&capture_tags.text());
 
-                if db::insert_note(&mut conn.borrow_mut(), trimmed, &tags).is_ok() {
-                    buffer.set_text("");
-                    capture_tags.set_text("");
-                    let _ = Notification::new()
-                        .summary("Memo-Tori")
-                        .body("Note saved")
-                        .show();
-                    refresh_notes.as_ref()();
+                match db::insert_note(&mut conn.borrow_mut(), trimmed, &tags) {
+                    Ok(()) => {
+                        buffer.set_text("");
+                        capture_tags.set_text("");
+                        error_banner.set_visible(false);
+                        let _ = Notification::new()
+                            .summary("Memo-Tori")
+                            .body("Note enregistrée")
+                            .show();
+                        refresh_notes.as_ref()();
+                    }
+                    Err(err) => show_error(&format!("Échec de l'enregistrement : {}", err)),
                 }
             }
         };
@@ -817,6 +847,8 @@ pub fn run(config: AppConfig, connection: Connection) -> Result<()> {
             let reader = reader.clone();
             let selected_tags_entry = selected_tags_entry.clone();
             let refresh_notes = Rc::clone(&refresh_notes);
+            let error_banner = error_banner.clone();
+            let show_error = Rc::clone(&show_error);
             move |_| {
                 let Some(row) = list_box.selected_row() else {
                     return;
@@ -846,12 +878,18 @@ pub fn run(config: AppConfig, connection: Connection) -> Result<()> {
                     db::update_note_content(&mut conn.borrow_mut(), &note_id, content.trim());
                 let tags_result = db::replace_note_tags(&mut conn.borrow_mut(), &note_id, &tags);
 
-                if content_result.is_ok() && tags_result.is_ok() {
-                    let _ = Notification::new()
-                        .summary("Memo-Tori")
-                        .body("Note enregistrée")
-                        .show();
-                    refresh_notes.as_ref()();
+                match (content_result, tags_result) {
+                    (Ok(()), Ok(())) => {
+                        error_banner.set_visible(false);
+                        let _ = Notification::new()
+                            .summary("Memo-Tori")
+                            .body("Note enregistrée")
+                            .show();
+                        refresh_notes.as_ref()();
+                    }
+                    (Err(err), _) | (_, Err(err)) => {
+                        show_error(&format!("Échec de l'enregistrement : {}", err));
+                    }
                 }
             }
         });
