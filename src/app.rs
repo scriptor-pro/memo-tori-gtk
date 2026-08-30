@@ -260,6 +260,12 @@ headerbar stackswitcher.memo-switcher button:checked label {
   font-style: italic;
 }
 
+.shortcuts-hint {
+  color: #496067;
+  font-size: 0.8rem;
+  font-style: italic;
+}
+
 .tag-chip {
   color: #1f3a45;
   background: #d9ecef;
@@ -509,6 +515,12 @@ pub fn run(config: AppConfig, connection: Connection) -> Result<()> {
         capture_tags_label.add_css_class("field-label");
         capture_tags_label.set_mnemonic_widget(Some(&capture_tags));
 
+        let shortcuts_hint = Label::new(Some(
+            "Entrée : enregistrer · Échap : effacer · Ctrl+Tab : changer d'onglet",
+        ));
+        shortcuts_hint.set_halign(Align::Start);
+        shortcuts_hint.add_css_class("shortcuts-hint");
+
         let actions = GtkBox::new(Orientation::Horizontal, 8);
         actions.set_halign(Align::End);
 
@@ -525,6 +537,7 @@ pub fn run(config: AppConfig, connection: Connection) -> Result<()> {
         capture_panel.append(&capture_overlay);
         capture_panel.append(&capture_tags_label);
         capture_panel.append(&capture_tags);
+        capture_panel.append(&shortcuts_hint);
         capture_panel.append(&actions);
 
         let library_panel = GtkBox::new(Orientation::Vertical, 8);
