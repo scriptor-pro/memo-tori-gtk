@@ -503,18 +503,24 @@ pub fn run(config: AppConfig, connection: Connection) -> Result<()> {
         search_row.append(&filter_tags_entry);
         search_row.append(&status_label);
 
-        let edit_tags_row = GtkBox::new(Orientation::Horizontal, 8);
+        let selected_tags_label_field = Label::new(Some("Tags de la note sélectionnée"));
+        selected_tags_label_field.set_halign(Align::Start);
+        selected_tags_label_field.add_css_class("field-label");
+
         let selected_tags_entry = Entry::new();
         selected_tags_entry.set_hexpand(true);
-        selected_tags_entry.set_placeholder_text(Some("Tags de la note selectionnee"));
+        selected_tags_entry.set_placeholder_text(Some("ex : projet, idée"));
         attach_tag_autocomplete(&selected_tags_entry, Rc::clone(&conn));
-        let apply_tags_btn = icon_label_button("emblem-ok-symbolic", "Apply tags");
-        apply_tags_btn.set_tooltip_text(Some("Appliquer les tags a la note selectionnee"));
-        let save_note_btn = icon_label_button("document-save-symbolic", "Save note");
-        save_note_btn.set_tooltip_text(Some("Sauvegarder les modifications de la note"));
-        edit_tags_row.append(&selected_tags_entry);
-        edit_tags_row.append(&apply_tags_btn);
-        edit_tags_row.append(&save_note_btn);
+        selected_tags_label_field.set_mnemonic_widget(Some(&selected_tags_entry));
+
+        let note_actions_row = GtkBox::new(Orientation::Horizontal, 8);
+        note_actions_row.set_halign(Align::End);
+        let cancel_note_btn = icon_label_button("edit-undo-symbolic", "Annuler");
+        cancel_note_btn.set_tooltip_text(Some("Annuler les modifications non enregistrées"));
+        let save_note_btn = icon_label_button("document-save-symbolic", "Enregistrer");
+        save_note_btn.set_tooltip_text(Some("Enregistrer le contenu et les tags de cette note"));
+        note_actions_row.append(&cancel_note_btn);
+        note_actions_row.append(&save_note_btn);
 
         let selected_tags_label = Label::new(Some("Tags: -"));
         selected_tags_label.set_halign(Align::Start);
@@ -552,9 +558,11 @@ pub fn run(config: AppConfig, connection: Connection) -> Result<()> {
         paned.set_position(320);
 
         library_panel.append(&search_row);
-        library_panel.append(&edit_tags_row);
+        library_panel.append(&selected_tags_label_field);
+        library_panel.append(&selected_tags_entry);
         library_panel.append(&selected_tags_label);
         library_panel.append(&paned);
+        library_panel.append(&note_actions_row);
 
         stack.add_titled(&capture_panel, Some("capture"), "Capture");
         stack.add_titled(&library_panel, Some("notes"), "Notes");
@@ -691,14 +699,16 @@ pub fn run(config: AppConfig, connection: Connection) -> Result<()> {
             }
         });
 
-        list_box.connect_row_selected({
+        let load_selected_note: Rc<dyn Fn()> = {
             let conn = Rc::clone(&conn);
             let reader = reader.clone();
             let notes_state = Rc::clone(&notes_state);
             let selected_tags_label = selected_tags_label.clone();
             let selected_tags_entry = selected_tags_entry.clone();
-            move |_, row| {
-                let Some(row) = row else {
+            let list_box = list_box.clone();
+
+            Rc::new(move || {
+                let Some(row) = list_box.selected_row() else {
                     reader.buffer().set_text("No note selected.");
                     selected_tags_label.set_text("Tags: -");
                     selected_tags_entry.set_text("");
@@ -748,7 +758,12 @@ pub fn run(config: AppConfig, connection: Connection) -> Result<()> {
                         selected_tags_label.set_text("Tags: error");
                     }
                 }
-            }
+            })
+        };
+
+        list_box.connect_row_selected({
+            let load_selected_note = Rc::clone(&load_selected_note);
+            move |_, _| load_selected_note.as_ref()()
         });
 
         search_entry.connect_search_changed({
@@ -761,49 +776,12 @@ pub fn run(config: AppConfig, connection: Connection) -> Result<()> {
             move |_| refresh_notes.as_ref()()
         });
 
-        apply_tags_btn.connect_clicked({
-            let conn = Rc::clone(&conn);
-            let notes_state = Rc::clone(&notes_state);
-            let list_box = list_box.clone();
-            let selected_tags_entry = selected_tags_entry.clone();
-            let selected_tags_label = selected_tags_label.clone();
-            let refresh_notes = Rc::clone(&refresh_notes);
-            move |_| {
-                let Some(row) = list_box.selected_row() else {
-                    return;
-                };
-
-                let index = row.index();
-                if index < 0 {
-                    return;
-                }
-
-                let note_id = notes_state
-                    .borrow()
-                    .get(index as usize)
-                    .map(|n| n.id.clone());
-
-                let Some(note_id) = note_id else {
-                    return;
-                };
-
-                let tags = parse_tags(&selected_tags_entry.text());
-                if db::replace_note_tags(&mut conn.borrow_mut(), &note_id, &tags).is_ok() {
-                    if tags.is_empty() {
-                        selected_tags_label.set_text("Tags: -");
-                    } else {
-                        selected_tags_label.set_text(&format!("Tags: {}", tags.join(", ")));
-                    }
-                    refresh_notes.as_ref()();
-                }
-            }
-        });
-
         save_note_btn.connect_clicked({
             let conn = Rc::clone(&conn);
             let notes_state = Rc::clone(&notes_state);
             let list_box = list_box.clone();
             let reader = reader.clone();
+            let selected_tags_entry = selected_tags_entry.clone();
             let refresh_notes = Rc::clone(&refresh_notes);
             move |_| {
                 let Some(row) = list_box.selected_row() else {
@@ -828,16 +806,25 @@ pub fn run(config: AppConfig, connection: Connection) -> Result<()> {
                 let start = buffer.start_iter();
                 let end = buffer.end_iter();
                 let content = buffer.text(&start, &end, true).to_string();
+                let tags = parse_tags(&selected_tags_entry.text());
 
-                if db::update_note_content(&mut conn.borrow_mut(), &note_id, content.trim()).is_ok()
-                {
+                let content_result =
+                    db::update_note_content(&mut conn.borrow_mut(), &note_id, content.trim());
+                let tags_result = db::replace_note_tags(&mut conn.borrow_mut(), &note_id, &tags);
+
+                if content_result.is_ok() && tags_result.is_ok() {
                     let _ = Notification::new()
                         .summary("Memo-Tori")
-                        .body("Note updated")
+                        .body("Note enregistrée")
                         .show();
                     refresh_notes.as_ref()();
                 }
             }
+        });
+
+        cancel_note_btn.connect_clicked({
+            let load_selected_note = Rc::clone(&load_selected_note);
+            move |_| load_selected_note.as_ref()()
         });
 
         refresh_notes.as_ref()();
