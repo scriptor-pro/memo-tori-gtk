@@ -5,13 +5,12 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use anyhow::Result;
 use gtk::gdk;
 use gtk::gio;
-use gtk::glib::variant::ToVariant;
 use gtk::glib::Propagation;
 use gtk::prelude::*;
 use gtk::{
     Align, Application, ApplicationWindow, Box as GtkBox, Button, Entry, Label, ListBox,
-    ListBoxRow, Orientation, Paned, Popover, PopoverMenuBar, ScrolledWindow, SearchEntry, Stack,
-    StackSwitcher, TextView, WrapMode,
+    ListBoxRow, Orientation, Paned, Popover, ScrolledWindow, SearchEntry, Stack, StackSwitcher,
+    TextView, WrapMode,
 };
 use notify_rust::Notification;
 use rusqlite::Connection;
@@ -186,17 +185,37 @@ window {
   font-family: \"Nebula Sans\", \"Inter\", \"Noto Sans\", \"DejaVu Sans\", sans-serif;
 }
 
-.menu-bar {
+headerbar {
   background: #1f3a45;
   color: #f8fafc;
-  padding: 6px;
-  border-radius: 8px;
 }
 
-.switcher-wrap {
-  background: #d8dfdc;
-  padding: 6px;
-  border-radius: 10px;
+headerbar stackswitcher.memo-switcher button,
+headerbar stackswitcher.memo-switcher button:backdrop {
+  background-color: transparent;
+  background-image: none;
+  color: #dfe9ec;
+  opacity: 1;
+}
+
+headerbar stackswitcher.memo-switcher button label {
+  color: #dfe9ec;
+  opacity: 1;
+}
+
+headerbar stackswitcher.memo-switcher button:hover {
+  background-color: alpha(#f8fafc, 0.15);
+}
+
+headerbar stackswitcher.memo-switcher button:checked,
+headerbar stackswitcher.memo-switcher button:checked:backdrop {
+  background-color: #f8fafc;
+  background-image: none;
+  color: #1f3a45;
+}
+
+headerbar stackswitcher.memo-switcher button:checked label {
+  color: #1f3a45;
 }
 
 .capture-panel {
@@ -370,30 +389,20 @@ pub fn run(config: AppConfig, connection: Connection) -> Result<()> {
         let stack_switcher = StackSwitcher::new();
         stack_switcher.set_stack(Some(&stack));
         stack_switcher.set_halign(Align::Center);
+        stack_switcher.add_css_class("memo-switcher");
 
-        let switcher_wrap = GtkBox::new(Orientation::Horizontal, 8);
-        switcher_wrap.add_css_class("switcher-wrap");
-        switcher_wrap.append(&stack_switcher);
+        let quit_btn = Button::from_icon_name("application-exit-symbolic");
+        quit_btn.set_tooltip_text(Some("Quitter l'application"));
+        quit_btn.update_property(&[gtk::accessible::Property::Label("Quitter l'application")]);
 
-        let app_menu = gio::Menu::new();
+        let header_bar = gtk::HeaderBar::new();
+        header_bar.set_title_widget(Some(&stack_switcher));
+        header_bar.pack_end(&quit_btn);
 
-        let item_capture = gio::MenuItem::new(Some("Capture"), Some("app.show_capture"));
-        item_capture.set_attribute_value("icon", Some(&"document-edit-symbolic".to_variant()));
-        app_menu.append_item(&item_capture);
-
-        let item_notes = gio::MenuItem::new(Some("Notes"), Some("app.show_notes"));
-        item_notes.set_attribute_value("icon", Some(&"view-list-symbolic".to_variant()));
-        app_menu.append_item(&item_notes);
-
-        let item_quit = gio::MenuItem::new(Some("Quitter"), Some("app.quit"));
-        item_quit.set_attribute_value("icon", Some(&"application-exit-symbolic".to_variant()));
-        app_menu.append_item(&item_quit);
-
-        let menu_root = gio::Menu::new();
-        menu_root.append_submenu(Some("Memo-Tori"), &app_menu);
-
-        let menu_bar = PopoverMenuBar::from_model(Some(&menu_root));
-        menu_bar.add_css_class("menu-bar");
+        quit_btn.connect_clicked({
+            let app = app.clone();
+            move |_| app.quit()
+        });
 
         let action_show_capture = gio::SimpleAction::new("show_capture", None);
         action_show_capture.connect_activate({
@@ -551,10 +560,9 @@ pub fn run(config: AppConfig, connection: Connection) -> Result<()> {
         stack.add_titled(&library_panel, Some("notes"), "Notes");
         stack.set_visible_child_name("capture");
 
-        root.append(&menu_bar);
-        root.append(&switcher_wrap);
         root.append(&stack);
         window.set_child(Some(&root));
+        window.set_titlebar(Some(&header_bar));
 
         let notes_state = Rc::new(RefCell::new(Vec::<db::NoteListItem>::new()));
 
