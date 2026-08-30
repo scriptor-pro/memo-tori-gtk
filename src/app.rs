@@ -470,8 +470,8 @@ pub fn run(config: AppConfig, connection: Connection) -> Result<()> {
         let actions = GtkBox::new(Orientation::Horizontal, 8);
         actions.set_halign(Align::End);
 
-        let save_btn = icon_label_button("document-save-symbolic", "Save");
-        let cancel_btn = icon_label_button("edit-clear-symbolic", "Cancel");
+        let save_btn = icon_label_button("document-save-symbolic", "Enregistrer");
+        let cancel_btn = icon_label_button("edit-clear-symbolic", "Annuler");
         save_btn.set_tooltip_text(Some("Sauvegarder la note"));
         cancel_btn.set_tooltip_text(Some("Effacer la saisie"));
 
@@ -489,14 +489,14 @@ pub fn run(config: AppConfig, connection: Connection) -> Result<()> {
         let search_row = GtkBox::new(Orientation::Horizontal, 8);
         let search_entry = SearchEntry::new();
         search_entry.set_hexpand(true);
-        search_entry.set_placeholder_text(Some("Search notes (FTS5)"));
+        search_entry.set_placeholder_text(Some("Rechercher..."));
         search_entry.set_tooltip_text(Some("Recherche plein texte dans les notes"));
         let filter_tags_entry = Entry::new();
         filter_tags_entry.set_hexpand(true);
         filter_tags_entry.set_placeholder_text(Some("Filtre tags (ex: projet, idee)"));
         filter_tags_entry.set_tooltip_text(Some("Affiche les notes qui contiennent tous ces tags"));
         attach_tag_autocomplete(&filter_tags_entry, Rc::clone(&conn));
-        let status_label = Label::new(Some("0 notes"));
+        let status_label = Label::new(Some("0 note"));
         status_label.set_halign(Align::End);
         status_label.add_css_class("status-label");
         search_row.append(&search_entry);
@@ -612,21 +612,21 @@ pub fn run(config: AppConfig, connection: Connection) -> Result<()> {
                             list_box.append(&row);
                         }
 
-                        status_label.set_text(&format!("{} notes", notes.len()));
+                        status_label.set_text(&format!("{} note{}", notes.len(), if notes.len() > 1 { "s" } else { "" }));
 
                         if let Some(row) = list_box.row_at_index(0) {
                             list_box.select_row(Some(&row));
                         } else {
-                            reader.buffer().set_text("No notes yet.");
+                            reader.buffer().set_text("Aucune note pour l'instant.");
                             selected_tags_label.set_text("Tags: -");
                             selected_tags_entry.set_text("");
                         }
                     }
                     Err(err) => {
-                        status_label.set_text("Search error");
+                        status_label.set_text("Échec de la recherche");
                         reader
                             .buffer()
-                            .set_text(&format!("Search failed:\n{}", err));
+                            .set_text(&format!("Échec de la recherche :\n{}", err));
                     }
                 }
             })
@@ -709,7 +709,7 @@ pub fn run(config: AppConfig, connection: Connection) -> Result<()> {
 
             Rc::new(move || {
                 let Some(row) = list_box.selected_row() else {
-                    reader.buffer().set_text("No note selected.");
+                    reader.buffer().set_text("Aucune note sélectionnée.");
                     selected_tags_label.set_text("Tags: -");
                     selected_tags_entry.set_text("");
                     return;
@@ -717,7 +717,7 @@ pub fn run(config: AppConfig, connection: Connection) -> Result<()> {
 
                 let index = row.index();
                 if index < 0 {
-                    reader.buffer().set_text("No note selected.");
+                    reader.buffer().set_text("Aucune note sélectionnée.");
                     selected_tags_label.set_text("Tags: -");
                     selected_tags_entry.set_text("");
                     return;
@@ -729,7 +729,7 @@ pub fn run(config: AppConfig, connection: Connection) -> Result<()> {
                     .map(|note| note.id.clone());
 
                 let Some(note_id) = note_id else {
-                    reader.buffer().set_text("No note selected.");
+                    reader.buffer().set_text("Aucune note sélectionnée.");
                     selected_tags_label.set_text("Tags: -");
                     selected_tags_entry.set_text("");
                     return;
