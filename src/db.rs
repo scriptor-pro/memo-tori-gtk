@@ -3,7 +3,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 use anyhow::{Context, Result};
 use rusqlite::types::Value;
-use rusqlite::{params, params_from_iter, Connection};
+use rusqlite::{params, params_from_iter, Connection, OptionalExtension};
 use uuid::Uuid;
 
 const SCHEMA_SQL: &str = include_str!("../migrations/001_init.sql");
@@ -329,6 +329,68 @@ pub fn list_tags_prefix(conn: &Connection, prefix: &str, limit: i64) -> Result<V
     Ok(tags)
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum MoveDirection {
+    Up,
+    Down,
+}
+
+pub fn move_note(conn: &mut Connection, note_id: &str, direction: MoveDirection) -> Result<()> {
+    let tx = conn
+        .transaction()
+        .context("failed to start move_note transaction")?;
+
+    let current_position: i64 = tx
+        .query_row(
+            "SELECT position FROM notes WHERE id = ?1 AND deleted_at IS NULL",
+            params![note_id],
+            |row| row.get(0),
+        )
+        .context("failed to read current note position")?;
+
+    let neighbor: Option<(String, i64)> = match direction {
+        MoveDirection::Up => tx
+            .query_row(
+                "SELECT id, position FROM notes
+                 WHERE deleted_at IS NULL AND position < ?1
+                 ORDER BY position DESC LIMIT 1",
+                params![current_position],
+                |row| Ok((row.get(0)?, row.get(1)?)),
+            )
+            .optional()
+            .context("failed to find previous neighbor")?,
+        MoveDirection::Down => tx
+            .query_row(
+                "SELECT id, position FROM notes
+                 WHERE deleted_at IS NULL AND position > ?1
+                 ORDER BY position ASC LIMIT 1",
+                params![current_position],
+                |row| Ok((row.get(0)?, row.get(1)?)),
+            )
+            .optional()
+            .context("failed to find next neighbor")?,
+    };
+
+    let Some((neighbor_id, neighbor_position)) = neighbor else {
+        return Ok(());
+    };
+
+    tx.execute(
+        "UPDATE notes SET position = ?2 WHERE id = ?1",
+        params![note_id, neighbor_position],
+    )
+    .context("failed to update moved note position")?;
+
+    tx.execute(
+        "UPDATE notes SET position = ?2 WHERE id = ?1",
+        params![neighbor_id, current_position],
+    )
+    .context("failed to update neighbor note position")?;
+
+    tx.commit().context("failed to commit move_note transaction")?;
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -417,5 +479,84 @@ mod tests {
             .unwrap();
 
         assert_eq!(ordered, vec!["second", "first"]);
+    }
+
+    #[test]
+    fn move_note_up_swaps_with_previous() {
+        let mut conn = setup_conn();
+        migrate_add_position_column(&mut conn).unwrap();
+        insert_note(&mut conn, "a", &[]).unwrap();
+        insert_note(&mut conn, "b", &[]).unwrap();
+        insert_note(&mut conn, "c", &[]).unwrap();
+        // Manual order is now: c, b, a (most recently inserted first, see Task 2).
+
+        let ids: Vec<(String, String)> = {
+            let mut stmt = conn
+                .prepare("SELECT id, content FROM notes ORDER BY position ASC")
+                .unwrap();
+            stmt.query_map([], |row| Ok((row.get(0)?, row.get(1)?)))
+                .unwrap()
+                .collect::<rusqlite::Result<Vec<_>>>()
+                .unwrap()
+        };
+        let a_id = ids.iter().find(|(_, c)| c == "a").unwrap().0.clone();
+
+        // "a" is last; moving it up should swap it with "b".
+        move_note(&mut conn, &a_id, MoveDirection::Up).unwrap();
+
+        let mut stmt = conn
+            .prepare("SELECT content FROM notes ORDER BY position ASC")
+            .unwrap();
+        let ordered: Vec<String> = stmt
+            .query_map([], |row| row.get::<_, String>(0))
+            .unwrap()
+            .collect::<rusqlite::Result<Vec<_>>>()
+            .unwrap();
+
+        assert_eq!(ordered, vec!["c", "a", "b"]);
+    }
+
+    #[test]
+    fn move_note_up_at_top_is_noop() {
+        let mut conn = setup_conn();
+        migrate_add_position_column(&mut conn).unwrap();
+        insert_note(&mut conn, "only", &[]).unwrap();
+
+        let id: String = conn
+            .query_row("SELECT id FROM notes", [], |row| row.get(0))
+            .unwrap();
+
+        move_note(&mut conn, &id, MoveDirection::Up).unwrap();
+
+        let position: i64 = conn
+            .query_row("SELECT position FROM notes WHERE id = ?1", params![id], |row| row.get(0))
+            .unwrap();
+        assert_eq!(position, -1); // unchanged from insert_note's assignment
+    }
+
+    #[test]
+    fn move_note_down_swaps_with_next() {
+        let mut conn = setup_conn();
+        migrate_add_position_column(&mut conn).unwrap();
+        insert_note(&mut conn, "a", &[]).unwrap();
+        insert_note(&mut conn, "b", &[]).unwrap();
+        // Manual order is now: b, a.
+
+        let b_id: String = conn
+            .query_row("SELECT id FROM notes WHERE content = 'b'", [], |row| row.get(0))
+            .unwrap();
+
+        move_note(&mut conn, &b_id, MoveDirection::Down).unwrap();
+
+        let mut stmt = conn
+            .prepare("SELECT content FROM notes ORDER BY position ASC")
+            .unwrap();
+        let ordered: Vec<String> = stmt
+            .query_map([], |row| row.get::<_, String>(0))
+            .unwrap()
+            .collect::<rusqlite::Result<Vec<_>>>()
+            .unwrap();
+
+        assert_eq!(ordered, vec!["a", "b"]);
     }
 }
