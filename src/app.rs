@@ -945,6 +945,62 @@ pub fn run(config: AppConfig, connection: Connection) -> Result<()> {
             move |_, _| load_selected_note.as_ref()()
         });
 
+        let reorder_key_controller = gtk::EventControllerKey::new();
+        reorder_key_controller.connect_key_pressed({
+            let conn = Rc::clone(&conn);
+            let notes_state = Rc::clone(&notes_state);
+            let list_box = list_box.clone();
+            let search_entry = search_entry.clone();
+            let filter_tags_entry = filter_tags_entry.clone();
+            let refresh_notes = Rc::clone(&refresh_notes);
+            move |_, key, _, state| {
+                if !state.contains(gdk::ModifierType::ALT_MASK) {
+                    return Propagation::Proceed;
+                }
+
+                if !manual_order_active(&search_entry, &filter_tags_entry) {
+                    return Propagation::Proceed;
+                }
+
+                let direction = if key == gdk::Key::Up {
+                    Some(db::MoveDirection::Up)
+                } else if key == gdk::Key::Down {
+                    Some(db::MoveDirection::Down)
+                } else {
+                    None
+                };
+
+                let Some(direction) = direction else {
+                    return Propagation::Proceed;
+                };
+
+                let Some(row) = list_box.selected_row() else {
+                    return Propagation::Proceed;
+                };
+
+                let index = row.index();
+                if index < 0 {
+                    return Propagation::Proceed;
+                }
+
+                let note_id = notes_state
+                    .borrow()
+                    .get(index as usize)
+                    .map(|n| n.id.clone());
+
+                let Some(note_id) = note_id else {
+                    return Propagation::Proceed;
+                };
+
+                if db::move_note(&mut conn.borrow_mut(), &note_id, direction).is_ok() {
+                    refresh_notes.as_ref()();
+                }
+
+                Propagation::Stop
+            }
+        });
+        list_box.add_controller(reorder_key_controller);
+
         search_entry.connect_search_changed({
             let refresh_notes = Rc::clone(&refresh_notes);
             move |_| refresh_notes.as_ref()()
