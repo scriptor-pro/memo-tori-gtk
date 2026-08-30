@@ -251,6 +251,13 @@ headerbar stackswitcher.memo-switcher button:checked label {
   font-weight: 600;
 }
 
+.field-label {
+  color: #1f3a45;
+  font-weight: 600;
+  font-size: 0.85rem;
+  margin-bottom: 2px;
+}
+
 .placeholder-hint {
   color: #496067;
   font-style: italic;
@@ -431,9 +438,13 @@ pub fn run(config: AppConfig, connection: Connection) -> Result<()> {
         let capture_panel = GtkBox::new(Orientation::Vertical, 8);
         capture_panel.add_css_class("capture-panel");
 
-        let capture_label = Label::new(Some("Capture d'idee rapide"));
+        let capture_label = Label::new(Some("Capture d'idée rapide"));
         capture_label.set_halign(Align::Start);
         capture_label.add_css_class("section-title");
+
+        let capture_field_label = Label::new(Some("Nouvelle note"));
+        capture_field_label.set_halign(Align::Start);
+        capture_field_label.add_css_class("field-label");
 
         let capture_scrolled = ScrolledWindow::new();
         capture_scrolled.set_vexpand(false);
@@ -447,6 +458,7 @@ pub fn run(config: AppConfig, connection: Connection) -> Result<()> {
         text_view.set_tooltip_text(Some(
             "Saisir une idee. Enter pour sauvegarder, Shift+Enter pour nouvelle ligne.",
         ));
+        capture_field_label.set_mnemonic_widget(Some(&text_view));
         capture_scrolled.set_child(Some(&text_view));
 
         let capture_overlay = gtk::Overlay::new();
@@ -467,6 +479,11 @@ pub fn run(config: AppConfig, connection: Connection) -> Result<()> {
         capture_tags.set_tooltip_text(Some("Liste de tags separes par des virgules"));
         attach_tag_autocomplete(&capture_tags, Rc::clone(&conn));
 
+        let capture_tags_label = Label::new(Some("Tags"));
+        capture_tags_label.set_halign(Align::Start);
+        capture_tags_label.add_css_class("field-label");
+        capture_tags_label.set_mnemonic_widget(Some(&capture_tags));
+
         let actions = GtkBox::new(Orientation::Horizontal, 8);
         actions.set_halign(Align::End);
 
@@ -479,7 +496,9 @@ pub fn run(config: AppConfig, connection: Connection) -> Result<()> {
         actions.append(&save_btn);
 
         capture_panel.append(&capture_label);
+        capture_panel.append(&capture_field_label);
         capture_panel.append(&capture_overlay);
+        capture_panel.append(&capture_tags_label);
         capture_panel.append(&capture_tags);
         capture_panel.append(&actions);
 
@@ -502,6 +521,20 @@ pub fn run(config: AppConfig, connection: Connection) -> Result<()> {
         search_row.append(&search_entry);
         search_row.append(&filter_tags_entry);
         search_row.append(&status_label);
+
+        let search_labels_row = GtkBox::new(Orientation::Horizontal, 8);
+        let search_label = Label::new(Some("Rechercher"));
+        search_label.set_halign(Align::Start);
+        search_label.add_css_class("field-label");
+        let filter_label = Label::new(Some("Filtrer par tags"));
+        filter_label.set_halign(Align::Start);
+        filter_label.add_css_class("field-label");
+        search_label.set_hexpand(true);
+        filter_label.set_hexpand(true);
+        search_labels_row.append(&search_label);
+        search_labels_row.append(&filter_label);
+        search_label.set_mnemonic_widget(Some(&search_entry));
+        filter_label.set_mnemonic_widget(Some(&filter_tags_entry));
 
         let selected_tags_label_field = Label::new(Some("Tags de la note sélectionnée"));
         selected_tags_label_field.set_halign(Align::Start);
@@ -557,6 +590,7 @@ pub fn run(config: AppConfig, connection: Connection) -> Result<()> {
         paned.set_end_child(Some(&reader_scrolled));
         paned.set_position(320);
 
+        library_panel.append(&search_labels_row);
         library_panel.append(&search_row);
         library_panel.append(&selected_tags_label_field);
         library_panel.append(&selected_tags_entry);
