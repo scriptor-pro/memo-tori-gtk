@@ -18,6 +18,7 @@ use rusqlite::Connection;
 
 use crate::config::AppConfig;
 use crate::db;
+use crate::tray::{self, TrayEvent};
 
 fn clear_listbox(list_box: &ListBox) {
     while let Some(child) = list_box.first_child() {
@@ -182,7 +183,7 @@ window {
 }
 
 * {
-  font-family: \"Inter\", \"Noto Sans\", \"DejaVu Sans\", sans-serif;
+  font-family: \"Nebula Sans\", \"Inter\", \"Noto Sans\", \"DejaVu Sans\", sans-serif;
 }
 
 .menu-bar {
@@ -272,7 +273,6 @@ list:focus-visible {
 }
 
 pub fn run(config: AppConfig, connection: Connection) -> Result<()> {
-    let quit_on_close = config.quit_on_close;
     let capture_hints = if config.capture_hints.is_empty() {
         vec!["L'idee que je viens d'avoir :".to_string()]
     } else {
@@ -286,8 +286,67 @@ pub fn run(config: AppConfig, connection: Connection) -> Result<()> {
     let conn = Rc::new(RefCell::new(connection));
     let capture_hints = Rc::new(capture_hints);
 
-    app.connect_activate(move |app| {
+    // GApplication (via `application_id`) already enforces single-instance:
+    // a second launch re-activates this instance over D-Bus instead of
+    // starting a new process. `main_window` persists the built window so
+    // `connect_activate` only re-presents it on subsequent activations,
+    // and the tray can reach the same window to toggle visibility.
+    let main_window: Rc<RefCell<Option<(ApplicationWindow, Stack)>>> = Rc::new(RefCell::new(None));
+
+    let tray_available = match tray::spawn() {
+        Ok(receiver) => {
+            let app = app.clone();
+            let main_window = Rc::clone(&main_window);
+            gtk::glib::spawn_future_local(async move {
+                while let Ok(event) = receiver.recv().await {
+                    let Some((window, stack)) = main_window.borrow().clone() else {
+                        continue;
+                    };
+
+                    match event {
+                        TrayEvent::ToggleWindow => {
+                            if window.is_visible() {
+                                window.hide();
+                            } else {
+                                window.present();
+                            }
+                        }
+                        TrayEvent::ShowCapture => {
+                            stack.set_visible_child_name("capture");
+                            window.present();
+                        }
+                        TrayEvent::ShowNotes => {
+                            stack.set_visible_child_name("notes");
+                            window.present();
+                        }
+                        TrayEvent::Quit => app.quit(),
+                    }
+                }
+            });
+            true
+        }
+        Err(_) => false,
+    };
+
+    if !tray_available {
+        eprintln!("memo-tori: no tray support detected, closing the window will quit the app");
+    }
+
+    // Per agent.md: "If tray not supported -> closing quits application."
+    // Without a tray, hiding the window on close would make it unreachable,
+    // so closing must always quit in that case regardless of user config.
+    let quit_on_close = config.quit_on_close || !tray_available;
+
+    app.connect_activate({
+        let main_window = Rc::clone(&main_window);
+        move |app| {
+        if let Some((window, _stack)) = main_window.borrow().as_ref() {
+            window.present();
+            return;
+        }
+
         gtk::Window::set_default_icon_name("memo-tori");
+        crate::fonts::ensure_installed();
         install_css();
 
         let window = ApplicationWindow::builder()
@@ -824,7 +883,8 @@ pub fn run(config: AppConfig, connection: Connection) -> Result<()> {
         });
 
         window.present();
-    });
+        *main_window.borrow_mut() = Some((window, stack));
+    }});
 
     app.run();
     Ok(())

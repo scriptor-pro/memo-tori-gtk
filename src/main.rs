@@ -1,7 +1,9 @@
 mod app;
 mod config;
 mod db;
+mod fonts;
 mod paths;
+mod tray;
 mod version;
 
 use anyhow::Result;
