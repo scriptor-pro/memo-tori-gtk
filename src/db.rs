@@ -14,10 +14,43 @@ pub struct NoteListItem {
     pub preview: String,
 }
 
+fn migrate_add_position_column(conn: &mut Connection) -> Result<()> {
+    let has_position: bool = conn
+        .prepare("SELECT COUNT(*) FROM pragma_table_info('notes') WHERE name = 'position'")
+        .context("failed to inspect notes table schema")?
+        .query_row([], |row| row.get::<_, i64>(0))
+        .context("failed to check for position column")?
+        > 0;
+
+    if has_position {
+        return Ok(());
+    }
+
+    let tx = conn
+        .transaction()
+        .context("failed to start position migration transaction")?;
+
+    tx.execute("ALTER TABLE notes ADD COLUMN position INTEGER NOT NULL DEFAULT 0", [])
+        .context("failed to add position column")?;
+
+    tx.execute(
+        "UPDATE notes SET position = (
+            SELECT COUNT(*) FROM notes AS n2
+            WHERE n2.updated_at > notes.updated_at
+        )",
+        [],
+    )
+    .context("failed to backfill position by recency")?;
+
+    tx.commit().context("failed to commit position migration")?;
+    Ok(())
+}
+
 pub fn open_and_init(db_path: &Path) -> Result<Connection> {
-    let conn = Connection::open(db_path).context("failed to open sqlite database")?;
+    let mut conn = Connection::open(db_path).context("failed to open sqlite database")?;
     conn.execute_batch(SCHEMA_SQL)
         .context("failed to initialize sqlite schema")?;
+    migrate_add_position_column(&mut conn)?;
     Ok(conn)
 }
 
@@ -289,4 +322,68 @@ pub fn list_tags_prefix(conn: &Connection, prefix: &str, limit: i64) -> Result<V
         .context("failed to decode tag prefix results")?;
 
     Ok(tags)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use rusqlite::Connection;
+
+    fn setup_conn() -> Connection {
+        let conn = Connection::open_in_memory().unwrap();
+        conn.execute_batch(SCHEMA_SQL).unwrap();
+        conn
+    }
+
+    #[test]
+    fn migrate_adds_position_column_with_default_zero() {
+        let mut conn = setup_conn();
+        migrate_add_position_column(&mut conn).unwrap();
+
+        let has_position: bool = conn
+            .prepare("SELECT COUNT(*) FROM pragma_table_info('notes') WHERE name = 'position'")
+            .unwrap()
+            .query_row([], |row| row.get::<_, i64>(0))
+            .unwrap()
+            > 0;
+
+        assert!(has_position, "expected notes.position column to exist after migration");
+    }
+
+    #[test]
+    fn migrate_is_idempotent() {
+        let mut conn = setup_conn();
+        migrate_add_position_column(&mut conn).unwrap();
+        // Second call must not error (column already exists).
+        migrate_add_position_column(&mut conn).unwrap();
+    }
+
+    #[test]
+    fn migrate_backfills_position_by_recency() {
+        let mut conn = setup_conn();
+        insert_note(&mut conn, "oldest", &[]).unwrap();
+        insert_note(&mut conn, "middle", &[]).unwrap();
+        insert_note(&mut conn, "newest", &[]).unwrap();
+
+        // Force distinct updated_at ordering regardless of insertion speed.
+        conn.execute("UPDATE notes SET updated_at = '100' WHERE content = 'oldest'", [])
+            .unwrap();
+        conn.execute("UPDATE notes SET updated_at = '200' WHERE content = 'middle'", [])
+            .unwrap();
+        conn.execute("UPDATE notes SET updated_at = '300' WHERE content = 'newest'", [])
+            .unwrap();
+
+        migrate_add_position_column(&mut conn).unwrap();
+
+        let mut stmt = conn
+            .prepare("SELECT content FROM notes ORDER BY position ASC")
+            .unwrap();
+        let ordered: Vec<String> = stmt
+            .query_map([], |row| row.get::<_, String>(0))
+            .unwrap()
+            .collect::<rusqlite::Result<Vec<_>>>()
+            .unwrap();
+
+        assert_eq!(ordered, vec!["newest", "middle", "oldest"]);
+    }
 }
